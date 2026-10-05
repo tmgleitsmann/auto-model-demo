@@ -36,7 +36,7 @@ Before a live demo, preflight that Auto Model is available right now (free, no c
 python3 run_demo.py --check
 ```
 
-The model id for Auto Model is `auto` on current CLI releases; the driver falls back to `auto-fast` on older builds automatically.
+Auto Model's canonical id is `auto`; the driver prefers it and only falls back to `auto-fast` while the API gates `auto`.
 
 ## What the demo shows
 
@@ -114,7 +114,7 @@ runs/                     created at runtime; workspaces and reports land here
 
 ## Troubleshooting
 
-**`Invalid model: auto` during a run.** The Factory API intermittently rejects the Auto Model ids (`auto`, `auto-fast`) for seconds to minutes at a time. It is a transient server-side gate, not a problem with this repo or your config. The driver rides it out: it probes with `droid exec --list-tools` (which exits before any session starts, so rejections cost nothing), waits up to ~90 seconds, and re-resolves mid-run if a task is hit. If the gate stays closed, the run stops with a clear message - retry shortly, or demo on a fixed model instead: `python3 run_demo.py --model gpt-5.6-sol`.
+**`Invalid model: auto` during a run.** The Factory API intermittently rejects the Auto Model ids (`auto`, `auto-fast`) for seconds to minutes at a time. It is a transient server-side gate, not a problem with this repo or your config. The driver rides it out: it probes with `droid exec --list-tools` (which exits before any session starts, so rejections cost nothing), waits up to ~90 seconds, and re-resolves and retries an affected task (up to two extra cycles) before giving up on it. If the gate stays closed, the run stops with a clear message - retry shortly, or demo on a fixed model instead: `python3 run_demo.py --model gpt-5.6-sol`.
 
 **A task missing from the report.** It did not run - the driver only records tasks that completed, and the report says so explicitly when a run is incomplete. Re-running redoes every task; finished ones simply overwrite their saved results.
 

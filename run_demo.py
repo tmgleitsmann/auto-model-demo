@@ -47,6 +47,7 @@ EXEC_TIMEOUT_S = 900
 VERIFY_TIMEOUT_S = 180
 ROUTER_PROBE_ROUNDS = 6
 ROUTER_PROBE_WAIT_S = 15
+INVALID_MODEL_RETRIES = 2
 
 
 def utcnow() -> str:
@@ -185,24 +186,32 @@ def probe_model_id(droid: str, model: str) -> bool:
     return proc.returncode == 0 and "Invalid model" not in combined
 
 
+def wait_for_model(droid: str, model: str, rounds: int) -> bool:
+    """Probe a model id with backoff until the API accepts it or rounds run out."""
+    for attempt in range(1, rounds + 1):
+        if probe_model_id(droid, model):
+            return True
+        if attempt < rounds:
+            print(
+                f"  note: `{model}` rejected (round {attempt}/{rounds}); "
+                f"waiting {ROUTER_PROBE_WAIT_S}s ..."
+            )
+            time.sleep(ROUTER_PROBE_WAIT_S)
+    return False
+
+
 def resolve_router_id(droid: str, rounds: int = ROUTER_PROBE_ROUNDS) -> str | None:
     """Find an Auto Model id the Factory API currently accepts.
 
     The API intermittently rejects the router ids (`auto`, `auto-fast`) at
     exec validation for seconds to minutes at a time. Probing is free
-    (--list-tools exits before a session starts), so try both ids and wait
-    the flap out.
+    (--list-tools exits before a session starts). The canonical id (`auto`)
+    gets the full retry budget first; `auto-fast` is only considered when
+    `auto` stays gated.
     """
-    for attempt in range(1, rounds + 1):
-        for mid in AUTO_MODEL_IDS:
-            if probe_model_id(droid, mid):
-                return mid
-        if attempt < rounds:
-            print(
-                f"  note: Auto Model ids rejected (round {attempt}/{rounds}); "
-                f"waiting {ROUTER_PROBE_WAIT_S}s ..."
-            )
-            time.sleep(ROUTER_PROBE_WAIT_S)
+    for mid in AUTO_MODEL_IDS:  # priority order: `auto` first
+        if wait_for_model(droid, mid, rounds):
+            return mid
     return None
 
 
@@ -424,7 +433,7 @@ def main() -> None:
         action="append",
         default=[],
         help="model id to run the suite on (repeatable). Default: Auto Model "
-        "(`auto`, falling back to `auto-fast` on older CLIs). BYOK custom model ids work too.",
+        "(`auto`; `auto-fast` only while the API gates `auto`). BYOK custom model ids work too.",
     )
     ap.add_argument(
         "--task", action="append", default=[], help="task name or substring (repeatable)"
@@ -505,14 +514,23 @@ def main() -> None:
             current = requested
         for task in tasks:
             record, error = run_task(droid, current, task)
-            if error and error.startswith("INVALID_MODEL") and requested is None:
-                print("  note: router id rejected mid-run; re-resolving ...")
-                router_id = resolve_router_id(droid, rounds=3)
-                if router_id is None:
-                    error = "Auto Model ids rejected by the Factory API"
-                else:
+            cycles = 0
+            while error and error.startswith("INVALID_MODEL") and cycles < INVALID_MODEL_RETRIES:
+                cycles += 1
+                if requested is None:
+                    print("  note: router id rejected mid-run; re-resolving ...")
+                    router_id = resolve_router_id(droid, rounds=3)
+                    if router_id is None:
+                        error = "Auto Model ids rejected by the Factory API"
+                        break
                     current = router_id
-                    record, error = run_task(droid, current, task)
+                else:
+                    # Explicit --model: keep the chosen id and wait the gate out.
+                    print(f"  note: `{current}` rejected mid-run; waiting out the gate ...")
+                    if not wait_for_model(droid, current, 3):
+                        error = f"`{current}` rejected by the Factory API (gate stayed closed)"
+                        break
+                record, error = run_task(droid, current, task)
             if error:
                 failures.append((task["name"], error))
                 print(f"  FAILED {task['name']}: {error}", file=sys.stderr)
