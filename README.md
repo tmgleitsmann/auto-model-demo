@@ -24,6 +24,12 @@ python3 run_demo.py
 
 Each task runs in a fresh copy of its workspace under `runs/`, so the source tasks stay untouched and every run is repeatable. The driver prints a routing report and writes the full version to `runs/report.md`.
 
+Repeat the demo as often as you like: the driver never edits `tasks/`. If you (or someone in the room) run Droid directly inside a task workspace, restore the committed state and wipe `runs/` with:
+
+```bash
+python3 run_demo.py --reset
+```
+
 The model id for Auto Model is `auto` on current CLI releases; the driver falls back to `auto-fast` on older builds automatically.
 
 ## What the demo shows

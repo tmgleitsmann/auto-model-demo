@@ -15,6 +15,7 @@ Usage:
   python3 run_demo.py --task bug-fix                    # subset (repeatable)
   python3 run_demo.py --report-only                     # re-render saved report
   python3 run_demo.py --clean                           # wipe runs/ first
+  python3 run_demo.py --reset                           # restore tasks/, wipe runs/, exit
 
 Requires the Droid CLI, signed in: https://docs.factory.ai
 """
@@ -337,6 +338,44 @@ def render_markdown(records: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def reset_demo() -> None:
+    """Restore tasks/ to its committed state and wipe runs/.
+
+    The driver never edits tasks/ - every run works on a fresh copy under
+    runs/. This covers the remaining case: someone ran Droid (or anything
+    else) directly inside a task workspace. Uncommitted changes under tasks/
+    are reverted and untracked residue (test caches, ROOT_CAUSE.md, .todo.json)
+    is removed.
+    """
+    inside = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-parse", "--is-inside-work-tree"],
+        capture_output=True,
+        text=True,
+    )
+    if shutil.which("git") and inside.stdout.strip() == "true":
+        subprocess.run(["git", "-C", str(ROOT), "restore", "--", "tasks/"], check=True)
+        subprocess.run(["git", "-C", str(ROOT), "clean", "-fdx", "--", "tasks/"], check=True)
+        print("reset: tasks/ restored to committed state (edits reverted, residue removed)")
+    else:
+        # No git work tree: best-effort removal of known run residue.
+        removed = 0
+        for junk in TASKS_DIR.glob("*/workspace/**/__pycache__"):
+            shutil.rmtree(junk, ignore_errors=True)
+            removed += 1
+        for name in ("ROOT_CAUSE.md", ".todo.json"):
+            for junk in TASKS_DIR.glob(f"*/workspace/**/{name}"):
+                junk.unlink(missing_ok=True)
+                removed += 1
+        print(
+            f"reset: no git work tree; removed {removed} residue files "
+            "(modified files could not be reverted - re-clone to restore)"
+        )
+    if RUNS_DIR.exists():
+        shutil.rmtree(RUNS_DIR)
+        print("reset: runs/ wiped")
+    print("Pristine again. Run the demo with: python3 run_demo.py")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -355,7 +394,16 @@ def main() -> None:
         "--report-only", action="store_true", help="render report from runs/runs.json without running"
     )
     ap.add_argument("--clean", action="store_true", help="delete runs/ before starting")
+    ap.add_argument(
+        "--reset",
+        action="store_true",
+        help="restore tasks/ to committed state, wipe runs/, and exit (covers running Droid directly inside a task workspace)",
+    )
     args = ap.parse_args()
+
+    if args.reset:
+        reset_demo()
+        return
 
     if args.clean and RUNS_DIR.exists():
         shutil.rmtree(RUNS_DIR)
