@@ -45,9 +45,9 @@ AUTO_MODEL_IDS = ["auto", "auto-fast"]
 
 EXEC_TIMEOUT_S = 900
 VERIFY_TIMEOUT_S = 180
-ROUTER_PROBE_ROUNDS = 6
+ROUTER_PROBE_ROUNDS = 2
 ROUTER_PROBE_WAIT_S = 15
-INVALID_MODEL_RETRIES = 2
+INVALID_MODEL_RETRIES = 1
 
 
 def utcnow() -> str:
@@ -252,6 +252,10 @@ def run_task(droid: str, model: str, task: dict) -> tuple[dict | None, str | Non
 
     session_id = result.get("session_id", "")
     routing = extract_routing(session_id)
+    if model in AUTO_MODEL_IDS and not routing["router"]:
+        # -m rejections are loud, but if the API ever silently swaps in the
+        # product default, the demo would record a misleading row. Fail loudly.
+        return None, "Auto Model did not serve this session (silent fallback); re-run"
     usage = result.get("usage") or {}
     ok = result.get("is_error") is False and result.get("subtype") == "success"
 
@@ -519,7 +523,7 @@ def main() -> None:
                 cycles += 1
                 if requested is None:
                     print("  note: router id rejected mid-run; re-resolving ...")
-                    router_id = resolve_router_id(droid, rounds=3)
+                    router_id = resolve_router_id(droid)
                     if router_id is None:
                         error = "Auto Model ids rejected by the Factory API"
                         break
