@@ -15,6 +15,7 @@ Usage:
   python3 run_demo.py --task bug-fix                    # subset (repeatable)
   python3 run_demo.py --report-only                     # re-render saved report
   python3 run_demo.py --clean                           # wipe runs/ first
+  python3 run_demo.py --check                           # preflight: is Auto Model accepted right now?
   python3 run_demo.py --reset                           # restore tasks/, wipe runs/, exit
 
 Requires the Droid CLI, signed in: https://docs.factory.ai
@@ -44,6 +45,8 @@ AUTO_MODEL_IDS = ["auto", "auto-fast"]
 
 EXEC_TIMEOUT_S = 900
 VERIFY_TIMEOUT_S = 180
+ROUTER_PROBE_ROUNDS = 6
+ROUTER_PROBE_WAIT_S = 15
 
 
 def utcnow() -> str:
@@ -167,6 +170,42 @@ def verify_task(verify_cmd: str, run_dir: Path) -> bool:
     return proc.returncode == 0
 
 
+def probe_model_id(droid: str, model: str) -> bool:
+    """Free validity check: --list-tools exits before any session starts."""
+    try:
+        proc = subprocess.run(
+            [droid, "exec", "-m", model, "--list-tools"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        return False
+    combined = (proc.stdout or "") + (proc.stderr or "")
+    return proc.returncode == 0 and "Invalid model" not in combined
+
+
+def resolve_router_id(droid: str, rounds: int = ROUTER_PROBE_ROUNDS) -> str | None:
+    """Find an Auto Model id the Factory API currently accepts.
+
+    The API intermittently rejects the router ids (`auto`, `auto-fast`) at
+    exec validation for seconds to minutes at a time. Probing is free
+    (--list-tools exits before a session starts), so try both ids and wait
+    the flap out.
+    """
+    for attempt in range(1, rounds + 1):
+        for mid in AUTO_MODEL_IDS:
+            if probe_model_id(droid, mid):
+                return mid
+        if attempt < rounds:
+            print(
+                f"  note: Auto Model ids rejected (round {attempt}/{rounds}); "
+                f"waiting {ROUTER_PROBE_WAIT_S}s ..."
+            )
+            time.sleep(ROUTER_PROBE_WAIT_S)
+    return None
+
+
 def run_task(droid: str, model: str, task: dict) -> tuple[dict | None, str | None]:
     """Run one task in a fresh copy of its workspace. (record, fatal_error)"""
     run_dir = RUNS_DIR / slug(model) / task["name"]
@@ -194,8 +233,8 @@ def run_task(droid: str, model: str, task: dict) -> tuple[dict | None, str | Non
 
     combined = (proc.stdout or "") + (proc.stderr or "")
     if "Invalid model" in combined:
-        excerpt = " | ".join(combined.strip().splitlines()[:3])[:300]
-        return None, f"INVALID_MODEL ({excerpt})"
+        first = next((l for l in combined.splitlines() if "Invalid model" in l), "Invalid model")
+        return None, f"INVALID_MODEL ({first.strip()})"
 
     result = parse_exec_result(proc.stdout or "")
     if result is None:
@@ -399,7 +438,26 @@ def main() -> None:
         action="store_true",
         help="restore tasks/ to committed state, wipe runs/, and exit (covers running Droid directly inside a task workspace)",
     )
+    ap.add_argument(
+        "--check",
+        action="store_true",
+        help="preflight: is the Auto Model id accepted right now? (free, no credits)",
+    )
     args = ap.parse_args()
+
+    if args.check:
+        droid = find_droid()
+        ids = args.model or AUTO_MODEL_IDS
+        for mid in ids:
+            if probe_model_id(droid, mid):
+                print(f"READY: `{mid}` is accepted by the Factory API right now.")
+                return
+        sys.exit(
+            "NOT READY: the Factory API is rejecting "
+            + ", ".join(f"`{m}`" for m in ids)
+            + " right now.\nThis gate is server-side and usually clears within minutes. "
+            "Retry with --check before starting the demo."
+        )
 
     if args.reset:
         reset_demo()
@@ -428,39 +486,64 @@ def main() -> None:
                 f"no tasks match {args.task}; available: {[t['name'] for t in all_tasks]}"
             )
 
+    failures: list[tuple[str, str]] = []
+    router_id = None
     for requested in args.model or [None]:
-        current = requested if requested else AUTO_MODEL_IDS[0]
-        fell_back = False
+        if requested is None:
+            if router_id is None:
+                router_id = resolve_router_id(droid)
+                if router_id is None:
+                    sys.exit(
+                        "\nThe Factory API is rejecting both Auto Model ids (`auto`, `auto-fast`)\n"
+                        "right now. This gate is server-side and clears on its own, usually within\n"
+                        "minutes. Re-run shortly, or demo on a fixed model meanwhile:\n"
+                        "    python3 run_demo.py --model gpt-5.6-sol"
+                    )
+                print(f"Auto Model: using `{router_id}` on this CLI.")
+            current = router_id
+        else:
+            current = requested
         for task in tasks:
             record, error = run_task(droid, current, task)
-            if error and error.startswith("INVALID_MODEL"):
-                # Router ids can be rejected transiently; retry once before
-                # treating the rejection as permanent.
-                print("  note: model id rejected; retrying once after 15s ...")
-                time.sleep(15)
-                record, error = run_task(droid, current, task)
-            if (
-                error
-                and error.startswith("INVALID_MODEL")
-                and requested is None
-                and not fell_back
-                and len(AUTO_MODEL_IDS) > 1
-            ):
-                fell_back = True
-                current = AUTO_MODEL_IDS[1]
-                print(f"  note: `{AUTO_MODEL_IDS[0]}` not accepted; using `{current}` for Auto Model")
-                record, error = run_task(droid, current, task)
+            if error and error.startswith("INVALID_MODEL") and requested is None:
+                print("  note: router id rejected mid-run; re-resolving ...")
+                router_id = resolve_router_id(droid, rounds=3)
+                if router_id is None:
+                    error = "Auto Model ids rejected by the Factory API"
+                else:
+                    current = router_id
+                    record, error = run_task(droid, current, task)
             if error:
-                print(f"  FAILED {error}", file=sys.stderr)
+                failures.append((task["name"], error))
+                print(f"  FAILED {task['name']}: {error}", file=sys.stderr)
                 continue
             if record:
                 records = save_run(records, record)
 
+    if failures:
+        print("\nINCOMPLETE RUN - tasks that did not run:", file=sys.stderr)
+        for name, err in failures:
+            print(f"  - {name}: {err}", file=sys.stderr)
+        print(
+            "\nRe-running redoes every task (finished ones just overwrite their saved results).\n"
+            "To demo on a fixed model instead: python3 run_demo.py --model gpt-5.6-sol"
+        )
     if not records:
-        sys.exit("no runs recorded")
+        sys.exit(1)
     print_report(records)
+    report = render_markdown(records)
+    if failures:
+        report += (
+            "\n## Incomplete run\n\n"
+            "The tasks below did not run; the Auto Model id was rejected by the\n"
+            "Factory API (a transient, server-side gate). Re-run to retry.\n\n"
+            + "\n".join(f"- `{n}`: {e}" for n, e in failures)
+            + "\n"
+        )
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
-    REPORT_MD.write_text(render_markdown(records))
+    REPORT_MD.write_text(report)
+    if failures:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

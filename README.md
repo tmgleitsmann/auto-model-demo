@@ -30,6 +30,12 @@ Repeat the demo as often as you like: the driver never edits `tasks/`. If you (o
 python3 run_demo.py --reset
 ```
 
+Before a live demo, preflight that Auto Model is available right now (free, no credits):
+
+```bash
+python3 run_demo.py --check
+```
+
 The model id for Auto Model is `auto` on current CLI releases; the driver falls back to `auto-fast` on older builds automatically.
 
 ## What the demo shows
@@ -105,6 +111,12 @@ byok/settings.example.json  custom model templates (OpenAI, OpenRouter, Ollama)
 results/sample-run.md     a real captured routing report
 runs/                     created at runtime; workspaces and reports land here
 ```
+
+## Troubleshooting
+
+**`Invalid model: auto` during a run.** The Factory API intermittently rejects the Auto Model ids (`auto`, `auto-fast`) for seconds to minutes at a time. It is a transient server-side gate, not a problem with this repo or your config. The driver rides it out: it probes with `droid exec --list-tools` (which exits before any session starts, so rejections cost nothing), waits up to ~90 seconds, and re-resolves mid-run if a task is hit. If the gate stays closed, the run stops with a clear message - retry shortly, or demo on a fixed model instead: `python3 run_demo.py --model gpt-5.6-sol`.
+
+**A task missing from the report.** It did not run - the driver only records tasks that completed, and the report says so explicitly when a run is incomplete. Re-running redoes every task; finished ones simply overwrite their saved results.
 
 ## Learn more
 
