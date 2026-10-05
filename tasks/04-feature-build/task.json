@@ -1,0 +1,5 @@
+{
+  "name": "feature-build",
+  "tier": "agentic",
+  "verify": "{python} -m unittest -q test_todo.py"
+}

@@ -1,0 +1,5 @@
+{
+  "name": "root-cause",
+  "tier": "reasoning",
+  "verify": "{python} -m unittest -q test_invoice.py"
+}

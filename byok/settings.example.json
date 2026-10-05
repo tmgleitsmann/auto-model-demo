@@ -1,0 +1,28 @@
+{
+  "_comment": "Copy the customModels you want into ~/.factory/settings.json (merge with existing keys). API keys stay on your machine and are never uploaded. apiKey supports ${ENV_VAR} expansion. Full field reference: https://docs.factory.com/model-independence/byok",
+  "customModels": [
+    {
+      "model": "gpt-5.3-codex",
+      "displayName": "OpenAI (my key)",
+      "baseUrl": "https://api.openai.com/v1",
+      "provider": "openai",
+      "apiKey": "${OPENAI_API_KEY}",
+      "maxOutputTokens": 16384
+    },
+    {
+      "model": "openai/gpt-oss-120b",
+      "displayName": "OpenRouter",
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "provider": "generic-chat-completion-api",
+      "apiKey": "${OPENROUTER_API_KEY}",
+      "maxOutputTokens": 16384
+    },
+    {
+      "model": "qwen3-coder:30b",
+      "displayName": "Ollama (local)",
+      "baseUrl": "http://localhost:11434/v1",
+      "provider": "generic-chat-completion-api",
+      "maxOutputTokens": 32768
+    }
+  ]
+}

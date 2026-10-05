@@ -1,0 +1,5 @@
+{
+  "name": "mechanical-edit",
+  "tier": "routine",
+  "verify": "{python} -m unittest -q test_greeting.py"
+}
