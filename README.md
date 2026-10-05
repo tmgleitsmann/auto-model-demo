@@ -2,7 +2,7 @@
 
 Watch Droid route different tasks to different models, then bring your own model and run the same suite on it.
 
-This repo holds four small, self-contained coding tasks and a driver that runs each one through `droid exec` with **Auto Model** (canonically, the [Factory Router](https://docs.factory.com/model-independence/factory-router)). After each run, the driver reads the session transcript and reports which model served every step, what it cost, and how long it took.
+This repo holds five small, self-contained coding tasks and a driver that runs each one through `droid exec` with **Auto Model** (canonically, the [Factory Router](https://docs.factory.com/model-independence/factory-router)). After each run, the driver reads the session transcript and reports which model served every step, what it cost, and how long it took.
 
 ## What you need
 
@@ -40,16 +40,17 @@ Auto Model's canonical id is `auto`; the driver prefers it and only falls back t
 
 ## What the demo shows
 
-Four tasks, one difficulty ladder:
+Five tasks, one difficulty ladder:
 
 | Task | What it asks for | What Auto Model did (sample run) |
 |---|---|---|
+| `00-hello-world` | Create a hello world script and run it | `gpt-5.6-luna`, 3,096 credits, 21s |
 | `01-mechanical-edit` | Add type hints and docstrings to two functions | `gpt-5.6-luna`, 5,504 credits, 24s |
 | `02-bug-fix` | Fix a failing date-math test | `deepseek-v4-flash-0731`, 5,921 credits, 22s |
 | `03-root-cause` | Diagnose a one-cent money bug, write it up, fix it | `deepseek-v4-flash-0731`, 8,029 credits, 44s |
 | `04-feature-build` | Add due dates to a CLI app, with tests and docs | `claude-opus-5`, 229,706 credits, 145s |
 
-That table is from a [real captured run](results/sample-run.md) (Droid CLI 0.213.0, 2026-10-05). The mechanical edit went to a fast model, the debugging and root-cause work went to a cost-efficient model, and the multi-step feature build went to a frontier model. Every task's own test suite passed.
+Every row is a real Auto Model run captured with Droid CLI 0.213.0; [results/sample-run.md](results/sample-run.md) holds the full report behind rows 01-04. The mechanical edit went to a fast model, the debugging and root-cause work went to a cost-efficient model, and the multi-step feature build went to a frontier model. Every task's own test suite passed.
 
 Routing is decided per request, not per session, so your run will pick different models. That is the point: instead of locking a session to one model, the router weighs the work in front of it and chooses the best balance of quality, latency, and cost. In production it delivers 63% aggregate cost savings versus pricing the same workload at frontier-model rates, with 99.9%+ request reliability through provider failover ([source](https://docs.factory.com/model-independence/factory-router)).
 
@@ -106,7 +107,7 @@ Add a task by creating `tasks/<name>/` with a `TASK.md` (the delegated task), a 
 
 ```text
 run_demo.py               driver: runs tasks, parses transcripts, renders the report
-tasks/                    four tasks, each with TASK.md, workspace/, task.json
+tasks/                    five tasks, each with TASK.md, workspace/, task.json
 byok/settings.example.json  custom model templates (OpenAI, OpenRouter, Ollama)
 results/sample-run.md     a real captured routing report
 runs/                     created at runtime; workspaces and reports land here
